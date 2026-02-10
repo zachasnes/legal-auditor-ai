@@ -51,41 +51,58 @@ with st.container():
         st.success("**24/7 Junior Associate**\n\nHandles the 'grunt work' of initial review.")
     st.write("---")
 
-# --- ENGINE SETUP (SELF-HEALING) ---
+# --- ENGINE SETUP (AUTO-DISCOVERY) ---
 api_key = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 
 @st.cache_resource
-def get_working_model():
-    # Strict list of versions to try. One WILL work.
-    candidates = [
-        'gemini-1.5-flash-001', # Most likely to work
-        'gemini-1.5-flash',
-        'gemini-1.5-pro-001',
-        'gemini-1.0-pro',
-        'gemini-pro'
-    ]
-    
-    for name in candidates:
-        try:
-            # Create the model
-            model = genai.GenerativeModel(name)
-            # FIRE A TEST SHOT to prove it works
-            model.generate_content("test")
-            return model, name # If we get here, it works!
-        except:
-            continue # If it crashes, try the next one silently
+def get_best_model():
+    try:
+        # 1. Ask Google: "List all models I can use."
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # 2. Sort by preference (Newest/Fastest first)
+        preferences = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.0-pro',
+            'models/gemini-pro'
+        ]
+        
+        # 3. Pick the first preference that actually exists in your list
+        selected_name = None
+        for p in preferences:
+            if p in available_models:
+                selected_name = p
+                break
+        
+        # 4. If no preference found, just grab the first valid model in the list
+        if not selected_name and available_models:
+            selected_name = available_models[0]
             
-    # Fallback if everything explodes (unlikely)
-    return genai.GenerativeModel('gemini-1.0-pro'), "gemini-1.0-pro"
+        if selected_name:
+            return genai.GenerativeModel(selected_name), selected_name
+        else:
+            return None, "No Models Found"
+            
+    except Exception as e:
+        return None, str(e)
 
-# Initialize the verified working model
-model, model_name = get_working_model()
+# Initialize Model
+model, model_name = get_best_model()
 
 # --- SIDEBAR (SMART LIBRARY) ---
 with st.sidebar:
     st.header("📂 Knowledge Base")
-    # I hid the model name so the user doesn't worry about it
+    # Show the user exactly which model we found (or the error if it failed)
+    if model:
+        st.success(f"Connected: {model_name}")
+    else:
+        st.error(f"Connection Error: {model_name}")
+        
     st.caption("Upload ALL your standard docs here (NDA, MSA, etc).")
     ref_files = st.file_uploader("Reference PDFs", type="pdf", accept_multiple_files=True)
     
@@ -104,62 +121,65 @@ target_files = st.file_uploader("Drag & drop contract (PDF)", type="pdf", accept
 
 if target_files:
     if st.button("🚀 Run Smart Audit"):
-        for target in target_files:
-            st.subheader(f"📄 Analysis: {target.name}")
-            
-            with st.spinner(f"Reading {target.name}..."):
-                pdf_reader = PyPDF2.PdfReader(target)
-                target_text = ""
-                for page in pdf_reader.pages:
-                    target_text += page.extract_text() + "\n"
-
-            with st.spinner("Auditing contract (this may take 30 seconds)..."):
-                prompt = f"""
-                <system_role>
-                You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
-                </system_role>
-
-                <library_instructions>
-                1. Analyze the 'Document to Audit' below to determine its type.
-                2. Search the 'Reference Library' below for the document that best matches that type.
-                3. If you find a match, use THAT specific document as the strict standard for grading.
-                4. If you do NOT find a match, use general strict market standards.
-                </library_instructions>
-
-                <reference_library>
-                {library_text if library_text else "No reference documents provided. Use general market standards."}
-                </reference_library>
+        if not model:
+            st.error("System Offline: No AI models detected. Check API Key.")
+        else:
+            for target in target_files:
+                st.subheader(f"📄 Analysis: {target.name}")
                 
-                <document_to_audit>
-                {target_text[:40000]}
-                </document_to_audit>
-                
-                <task>
-                Perform a strict risk audit.
-                1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using).
-                2. RISK SCORE (1-10)
-                3. EXECUTIVE SUMMARY (3 bullets)
-                4. CRITICAL REDLINES (Top 3 deviations from the selected standard)
-                </task>
-                """
-                
-                try:
-                    response = model.generate_content(prompt)
-                    report_text = response.text
-                    st.markdown(report_text)
+                with st.spinner(f"Reading {target.name}..."):
+                    pdf_reader = PyPDF2.PdfReader(target)
+                    target_text = ""
+                    for page in pdf_reader.pages:
+                        target_text += page.extract_text() + "\n"
+
+                with st.spinner("Auditing contract..."):
+                    prompt = f"""
+                    <system_role>
+                    You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
+                    </system_role>
+
+                    <library_instructions>
+                    1. Analyze the 'Document to Audit' below to determine its type.
+                    2. Search the 'Reference Library' below for the document that best matches that type.
+                    3. If you find a match, use THAT specific document as the strict standard for grading.
+                    4. If you do NOT find a match, use general strict market standards.
+                    </library_instructions>
+
+                    <reference_library>
+                    {library_text if library_text else "No reference documents provided. Use general market standards."}
+                    </reference_library>
                     
-                    doc = Document()
-                    doc.add_heading(f'Audit Report: {target.name}', 0)
-                    doc.add_paragraph(report_text)
-                    bio = BytesIO()
-                    doc.save(bio)
+                    <document_to_audit>
+                    {target_text[:40000]}
+                    </document_to_audit>
                     
-                    st.download_button(
-                        label=f"💾 Download Report ({target.name})",
-                        data=bio.getvalue(),
-                        file_name=f"Audit_{target.name}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=target.name
-                    )
-                except Exception as e:
-                    st.error(f"Analysis Failed. Please try refreshing the page. Error: {e}")
+                    <task>
+                    Perform a strict risk audit.
+                    1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using).
+                    2. RISK SCORE (1-10)
+                    3. EXECUTIVE SUMMARY (3 bullets)
+                    4. CRITICAL REDLINES (Top 3 deviations from the selected standard)
+                    </task>
+                    """
+                    
+                    try:
+                        response = model.generate_content(prompt)
+                        report_text = response.text
+                        st.markdown(report_text)
+                        
+                        doc = Document()
+                        doc.add_heading(f'Audit Report: {target.name}', 0)
+                        doc.add_paragraph(report_text)
+                        bio = BytesIO()
+                        doc.save(bio)
+                        
+                        st.download_button(
+                            label=f"💾 Download Report ({target.name})",
+                            data=bio.getvalue(),
+                            file_name=f"Audit_{target.name}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=target.name
+                        )
+                    except Exception as e:
+                        st.error(f"Analysis Failed. Error: {e}")
