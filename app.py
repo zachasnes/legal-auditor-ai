@@ -38,7 +38,6 @@ if not st.session_state.auth:
 st.title("⚖️ Legal Auditor AI")
 st.markdown("### Intelligent Contract Risk Analysis")
 
-# --- THE NEW "WHY USE THIS" SECTION ---
 with st.container():
     st.write("---")
     col1, col2, col3 = st.columns(3)
@@ -64,43 +63,56 @@ try:
 except:
     model = genai.GenerativeModel('gemini-pro')
 
-# --- SIDEBAR ---
+# --- SIDEBAR (SMART LIBRARY) ---
 with st.sidebar:
     st.header("📂 Knowledge Base")
-    st.caption("Upload your 'Gold Standard' contracts here to teach the AI what you like.")
+    st.caption("Upload ALL your standard docs here (NDA, MSA, etc). The AI will pick the right one automatically.")
     ref_files = st.file_uploader("Reference PDFs", type="pdf", accept_multiple_files=True)
-    ref_text = ""
+    
+    # Process the library into tagged sections
+    library_text = ""
     if ref_files:
         for ref in ref_files:
             pdf_reader = PyPDF2.PdfReader(ref)
+            doc_text = ""
             for page in pdf_reader.pages:
-                ref_text += page.extract_text() + "\n"
+                doc_text += page.extract_text() + "\n"
+            # Tag the document so the AI knows what it is
+            library_text += f"\n<reference_doc name='{ref.name}'>\n{doc_text}\n</reference_doc>\n"
 
 # --- MAIN AUDIT TOOL ---
 st.header("1. Upload Contract for Audit")
 target_files = st.file_uploader("Drag & drop contract (PDF)", type="pdf", accept_multiple_files=True)
 
 if target_files:
-    if st.button("🚀 Run Executive Audit"):
+    if st.button("🚀 Run Smart Audit"):
         for target in target_files:
             st.subheader(f"📄 Analysis: {target.name}")
             
-            with st.spinner("Reading contract terms..."):
+            with st.spinner(f"Reading {target.name}..."):
                 pdf_reader = PyPDF2.PdfReader(target)
                 target_text = ""
                 for page in pdf_reader.pages:
                     target_text += page.extract_text() + "\n"
 
-            with st.spinner("Identifying risks & generating report..."):
-                # --- SECURE PROMPT ---
+            with st.spinner("Selecting matching standard & auditing..."):
+                # --- INTELLIGENT PROMPT ---
                 prompt = f"""
                 <system_role>
-                You are a senior General Counsel. Your ONLY task is to audit the contract below.
+                You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
+                Your goal is to audit the user's uploaded contract by comparing it to the CORRECT reference standard.
                 </system_role>
 
-                <context_standards>
-                {ref_text[:30000] if ref_text else "Use strict market standards."}
-                </context_standards>
+                <library_instructions>
+                1. Analyze the 'Document to Audit' below to determine its type (e.g., NDA, MSA, SOW).
+                2. Search the 'Reference Library' below for the document that best matches that type.
+                3. If you find a match, use THAT specific document as the strict standard for grading.
+                4. If you do NOT find a match, use general strict market standards.
+                </library_instructions>
+
+                <reference_library>
+                {library_text if library_text else "No reference documents provided. Use general market standards."}
+                </reference_library>
                 
                 <document_to_audit>
                 {target_text[:40000]}
@@ -108,9 +120,10 @@ if target_files:
                 
                 <task>
                 Perform a strict risk audit.
-                1. RISK SCORE (1-10)
-                2. EXECUTIVE SUMMARY (3 bullets)
-                3. CRITICAL REDLINES (Top 3)
+                1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using to judge it).
+                2. RISK SCORE (1-10)
+                3. EXECUTIVE SUMMARY (3 bullets)
+                4. CRITICAL REDLINES (Top 3 deviations from the selected standard)
                 </task>
                 """
                 
@@ -126,10 +139,11 @@ if target_files:
                     doc.save(bio)
                     
                     st.download_button(
-                        label="💾 Download Word Doc",
+                        label=f"💾 Download Report ({target.name})",
                         data=bio.getvalue(),
                         file_name=f"Audit_{target.name}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=target.name
                     )
                 except Exception as e:
                     st.error(f"Analysis Failed: {e}")
