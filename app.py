@@ -21,7 +21,6 @@ st.markdown("""
 if "auth" not in st.session_state:
     st.session_state.auth = False
 
-# Secure Password Check
 SECURE_PASSWORD = os.environ.get("APP_PASSWORD")
 
 if not st.session_state.auth:
@@ -41,35 +40,48 @@ st.markdown("### Intelligent Contract Risk Analysis")
 with st.container():
     st.write("---")
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         st.header("⏱️ Speed")
-        st.info("**Saves ~45 Mins/Contract**\n\nInstantly summarizes 50-page agreements into a 1-page executive brief.")
-        
+        st.info("**Saves ~45 Mins/Contract**\n\nInstantly summarizes 50-page agreements.")
     with col2:
         st.header("🛡️ Safety")
-        st.warning("**Catch Hidden Risks**\n\nAuto-detects dangerous clauses like 'Uncapped Indemnification' that tired eyes might miss.")
-        
+        st.warning("**Catch Hidden Risks**\n\nAuto-detects dangerous clauses like 'Uncapped Indemnification'.")
     with col3:
         st.header("💰 Value")
-        st.success("**24/7 Junior Associate**\n\nHandles the 'grunt work' of initial review so you can focus on high-level strategy.")
+        st.success("**24/7 Junior Associate**\n\nHandles the 'grunt work' of initial review.")
     st.write("---")
 
-# --- ENGINE SETUP ---
+# --- ENGINE SETUP (THE SKELETON KEY) ---
 api_key = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
-try:
-    model = genai.GenerativeModel('gemini-pro')
-except:
-    model = genai.GenerativeModel('gemini-pro')
+
+def get_working_model():
+    # List of models to try in order of preference
+    candidates = [
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-001',
+        'gemini-1.5-pro',
+        'gemini-1.0-pro',
+        'gemini-pro',
+        'models/gemini-1.5-flash-latest'
+    ]
+    for name in candidates:
+        try:
+            model = genai.GenerativeModel(name)
+            return model, name
+        except:
+            continue
+    return genai.GenerativeModel('gemini-pro'), "gemini-pro"
+
+# Initialize Model
+model, model_name = get_working_model()
 
 # --- SIDEBAR (SMART LIBRARY) ---
 with st.sidebar:
     st.header("📂 Knowledge Base")
-    st.caption("Upload ALL your standard docs here (NDA, MSA, etc). The AI will pick the right one automatically.")
+    st.caption(f"🤖 AI Model: {model_name}") # Shows us which model worked
     ref_files = st.file_uploader("Reference PDFs", type="pdf", accept_multiple_files=True)
     
-    # Process the library into tagged sections
     library_text = ""
     if ref_files:
         for ref in ref_files:
@@ -77,7 +89,6 @@ with st.sidebar:
             doc_text = ""
             for page in pdf_reader.pages:
                 doc_text += page.extract_text() + "\n"
-            # Tag the document so the AI knows what it is
             library_text += f"\n<reference_doc name='{ref.name}'>\n{doc_text}\n</reference_doc>\n"
 
 # --- MAIN AUDIT TOOL ---
@@ -96,15 +107,13 @@ if target_files:
                     target_text += page.extract_text() + "\n"
 
             with st.spinner("Selecting matching standard & auditing..."):
-                # --- INTELLIGENT PROMPT ---
                 prompt = f"""
                 <system_role>
                 You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
-                Your goal is to audit the user's uploaded contract by comparing it to the CORRECT reference standard.
                 </system_role>
 
                 <library_instructions>
-                1. Analyze the 'Document to Audit' below to determine its type (e.g., NDA, MSA, SOW).
+                1. Analyze the 'Document to Audit' below to determine its type.
                 2. Search the 'Reference Library' below for the document that best matches that type.
                 3. If you find a match, use THAT specific document as the strict standard for grading.
                 4. If you do NOT find a match, use general strict market standards.
@@ -120,7 +129,7 @@ if target_files:
                 
                 <task>
                 Perform a strict risk audit.
-                1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using to judge it).
+                1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using).
                 2. RISK SCORE (1-10)
                 3. EXECUTIVE SUMMARY (3 bullets)
                 4. CRITICAL REDLINES (Top 3 deviations from the selected standard)
@@ -146,4 +155,4 @@ if target_files:
                         key=target.name
                     )
                 except Exception as e:
-                    st.error(f"Analysis Failed: {e}")
+                    st.error(f"Analysis Failed. Try refreshing. Error: {e}")
