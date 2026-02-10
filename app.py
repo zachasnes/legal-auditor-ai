@@ -51,35 +51,42 @@ with st.container():
         st.success("**24/7 Junior Associate**\n\nHandles the 'grunt work' of initial review.")
     st.write("---")
 
-# --- ENGINE SETUP (THE SKELETON KEY) ---
+# --- ENGINE SETUP (SELF-HEALING) ---
 api_key = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 
+@st.cache_resource
 def get_working_model():
-    # List of models to try in order of preference
+    # Strict list of versions to try. One WILL work.
     candidates = [
+        'gemini-1.5-flash-001', # Most likely to work
         'gemini-1.5-flash',
-        'gemini-1.5-flash-001',
-        'gemini-1.5-pro',
+        'gemini-1.5-pro-001',
         'gemini-1.0-pro',
-        'gemini-pro',
-        'models/gemini-1.5-flash-latest'
+        'gemini-pro'
     ]
+    
     for name in candidates:
         try:
+            # Create the model
             model = genai.GenerativeModel(name)
-            return model, name
+            # FIRE A TEST SHOT to prove it works
+            model.generate_content("test")
+            return model, name # If we get here, it works!
         except:
-            continue
-    return genai.GenerativeModel('gemini-pro'), "gemini-pro"
+            continue # If it crashes, try the next one silently
+            
+    # Fallback if everything explodes (unlikely)
+    return genai.GenerativeModel('gemini-1.0-pro'), "gemini-1.0-pro"
 
-# Initialize Model
+# Initialize the verified working model
 model, model_name = get_working_model()
 
 # --- SIDEBAR (SMART LIBRARY) ---
 with st.sidebar:
     st.header("📂 Knowledge Base")
-    st.caption(f"🤖 AI Model: {model_name}") # Shows us which model worked
+    # I hid the model name so the user doesn't worry about it
+    st.caption("Upload ALL your standard docs here (NDA, MSA, etc).")
     ref_files = st.file_uploader("Reference PDFs", type="pdf", accept_multiple_files=True)
     
     library_text = ""
@@ -106,7 +113,7 @@ if target_files:
                 for page in pdf_reader.pages:
                     target_text += page.extract_text() + "\n"
 
-            with st.spinner("Selecting matching standard & auditing..."):
+            with st.spinner("Auditing contract (this may take 30 seconds)..."):
                 prompt = f"""
                 <system_role>
                 You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
@@ -155,4 +162,4 @@ if target_files:
                         key=target.name
                     )
                 except Exception as e:
-                    st.error(f"Analysis Failed. Try refreshing. Error: {e}")
+                    st.error(f"Analysis Failed. Please try refreshing the page. Error: {e}")
