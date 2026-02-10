@@ -59,7 +59,7 @@ with st.container():
 api_key = os.environ.get("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 try:
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except:
     model = genai.GenerativeModel('gemini-pro')
 
