@@ -26,7 +26,7 @@ if "auth" not in st.session_state:
 
 # Retrieve password from Environment Variable
 # If the variable is missing, default to "LegalEagle2026" just in case
-SECURE_PASSWORD = os.environ.get("APP_PASSWORD", "LegalEagle2026")
+SECURE_PASSWORD = os.environ.get("APP_PASSWORD")
 
 if not st.session_state.auth:
     entered_password = st.text_input("Enter Access Password", type="password")
