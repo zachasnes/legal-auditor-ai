@@ -6,50 +6,30 @@ from docx import Document
 from io import BytesIO
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Legal Auditor AI", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="Legal Auditor: Shark Edition", page_icon="⚖️", layout="wide")
 
+# --- CUSTOM CSS FOR SPLIT VIEW ---
 st.markdown("""
 <style>
-    .reportview-container { background: #f0f2f6; }
-    h1 { color: #1e3a8a; }
-    .stButton>button { background-color: #1e3a8a; color: white; border-radius: 5px; }
-    .metric-container { background-color: #ffffff; padding: 10px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .reportview-container { background: #f8f9fa; }
+    .stHeader { color: #002D62; }
+    .comparison-card { background: #ffffff; padding: 15px; border-radius: 8px; border-left: 5px solid #002D62; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- AUTHENTICATION (SECURE) ---
+# --- AUTHENTICATION ---
 if "auth" not in st.session_state:
     st.session_state.auth = False
 
 SECURE_PASSWORD = os.environ.get("APP_PASSWORD")
 
 if not st.session_state.auth:
-    st.title("🔒 Legal Auditor Login")
-    entered_password = st.text_input("Enter Access Password", type="password")
+    st.title("🔒 Attorney Access Only")
+    entered_password = st.text_input("Access Password", type="password")
     if entered_password == SECURE_PASSWORD:
         st.session_state.auth = True
         st.rerun()
-    elif entered_password:
-        st.error("Access Denied.")
     st.stop()
-
-# --- MAIN DASHBOARD ---
-st.title("⚖️ Legal Auditor AI")
-st.markdown("### Intelligent Contract Risk Analysis")
-
-with st.container():
-    st.write("---")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.header("⏱️ Speed")
-        st.info("**Saves ~45 Mins/Contract**\n\nInstantly summarizes 50-page agreements.")
-    with col2:
-        st.header("🛡️ Safety")
-        st.warning("**Catch Hidden Risks**\n\nAuto-detects dangerous clauses like 'Uncapped Indemnification'.")
-    with col3:
-        st.header("💰 Value")
-        st.success("**24/7 Junior Associate**\n\nHandles the 'grunt work' of initial review.")
-    st.write("---")
 
 # --- ENGINE SETUP (AUTO-DISCOVERY) ---
 api_key = os.environ.get("GOOGLE_API_KEY")
@@ -58,128 +38,104 @@ genai.configure(api_key=api_key)
 @st.cache_resource
 def get_best_model():
     try:
-        # 1. Ask Google: "List all models I can use."
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        # 2. Sort by preference (Newest/Fastest first)
-        preferences = [
-            'models/gemini-1.5-flash',
-            'models/gemini-1.5-pro',
-            'models/gemini-1.0-pro',
-            'models/gemini-pro'
-        ]
-        
-        # 3. Pick the first preference that actually exists in your list
-        selected_name = None
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        preferences = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash', 'models/gemini-pro']
         for p in preferences:
             if p in available_models:
-                selected_name = p
-                break
-        
-        # 4. If no preference found, just grab the first valid model in the list
-        if not selected_name and available_models:
-            selected_name = available_models[0]
-            
-        if selected_name:
-            return genai.GenerativeModel(selected_name), selected_name
-        else:
-            return None, "No Models Found"
-            
-    except Exception as e:
-        return None, str(e)
+                return genai.GenerativeModel(p), p
+        return genai.GenerativeModel(available_models[0]), available_models[0]
+    except:
+        return None, "Error Connecting"
 
-# Initialize Model
 model, model_name = get_best_model()
 
-# --- SIDEBAR (SMART LIBRARY) ---
-with st.sidebar:
-    st.header("📂 Knowledge Base")
-    # Show the user exactly which model we found (or the error if it failed)
-    if model:
-        st.success(f"Connected: {model_name}")
-    else:
-        st.error(f"Connection Error: {model_name}")
-        
-    st.caption("Upload ALL your standard docs here (NDA, MSA, etc).")
-    ref_files = st.file_uploader("Reference PDFs", type="pdf", accept_multiple_files=True)
+# --- HEADER ---
+st.title("⚖️ Legal Auditor: Shark Edition")
+st.caption(f"Engine: {model_name} | Mode: High-Precision Comparison")
+
+# --- UI LAYOUT: TWO COLUMNS ---
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.header("1. Your Source of Truth")
+    st.info("Upload your **Playbook** or **Your Last Sent Draft**.")
+    source_files = st.file_uploader("Upload Source PDF(s)", type="pdf", accept_multiple_files=True, key="source")
     
-    library_text = ""
-    if ref_files:
-        for ref in ref_files:
-            pdf_reader = PyPDF2.PdfReader(ref)
-            doc_text = ""
-            for page in pdf_reader.pages:
-                doc_text += page.extract_text() + "\n"
-            library_text += f"\n<reference_doc name='{ref.name}'>\n{doc_text}\n</reference_doc>\n"
+    source_text = ""
+    if source_files:
+        for f in source_files:
+            reader = PyPDF2.PdfReader(f)
+            for p in reader.pages:
+                source_text += f"\n<source_doc name='{f.name}'>\n{p.extract_text()}\n</source_doc>"
 
-# --- MAIN AUDIT TOOL ---
-st.header("1. Upload Contract for Audit")
-target_files = st.file_uploader("Drag & drop contract (PDF)", type="pdf", accept_multiple_files=True)
+with col_right:
+    st.header("2. The Counterparty Draft")
+    st.warning("Upload the **Incoming Document** you need to review.")
+    target_files = st.file_uploader("Upload Review PDF(s)", type="pdf", accept_multiple_files=True, key="target")
 
-if target_files:
-    if st.button("🚀 Run Smart Audit"):
-        if not model:
-            st.error("System Offline: No AI models detected. Check API Key.")
-        else:
-            for target in target_files:
-                st.subheader(f"📄 Analysis: {target.name}")
+# --- SETTINGS & TRIGGER ---
+st.divider()
+c1, c2, c3 = st.columns([1, 1, 1])
+
+with c1:
+    client_type = st.selectbox("I represent the:", ["Landlord", "Tenant", "Buyer", "Seller", "Lender", "Borrower"])
+
+with c2:
+    review_mode = st.radio(
+        "Review Logic:",
+        ["**Playbook Match** (Concept Search)", "**Literal Redline** (Word-for-Word)"],
+        help="Playbook Match looks for legal concepts. Literal Redline flags every word change."
+    )
+
+if st.button("🚀 Run Comparison Audit"):
+    if not source_text or not target_files:
+        st.error("Missing Files: Please upload both a 'Source' and a 'Review' document.")
+    else:
+        for target in target_files:
+            st.subheader(f"🔍 Deviation Report: {target.name}")
+            
+            with st.spinner("Processing..."):
+                target_reader = PyPDF2.PdfReader(target)
+                target_text = ""
+                for p in target_reader.pages:
+                    target_text += p.extract_text() + "\n"
+
+                # --- SHARK PROMPT ---
+                prompt_task = "STRICT WORD-FOR-WORD COMPARISON. Flag any synonym change." if "Literal" in review_mode else "CONCEPTUAL PLAYBOOK COMPLIANCE. Flag deviations from mandatory legal standards."
                 
-                with st.spinner(f"Reading {target.name}..."):
-                    pdf_reader = PyPDF2.PdfReader(target)
-                    target_text = ""
-                    for page in pdf_reader.pages:
-                        target_text += page.extract_text() + "\n"
+                prompt = f"""
+                You are a senior attorney's high-precision comparison tool. 
+                Representing: {client_type}
+                Task: {prompt_task}
 
-                with st.spinner("Auditing contract..."):
-                    prompt = f"""
-                    <system_role>
-                    You are a senior General Counsel. You have access to a library of "Gold Standard" reference documents.
-                    </system_role>
+                [SOURCE OF TRUTH / PLAYBOOK]
+                {source_text[:30000]}
 
-                    <library_instructions>
-                    1. Analyze the 'Document to Audit' below to determine its type.
-                    2. Search the 'Reference Library' below for the document that best matches that type.
-                    3. If you find a match, use THAT specific document as the strict standard for grading.
-                    4. If you do NOT find a match, use general strict market standards.
-                    </library_instructions>
+                [INCOMING DRAFT FOR REVIEW]
+                {target_text[:30000]}
 
-                    <reference_library>
-                    {library_text if library_text else "No reference documents provided. Use general market standards."}
-                    </reference_library>
+                INSTRUCTIONS:
+                1. Identify which document in the 'Source of Truth' matches the incoming draft type.
+                2. Do NOT provide summaries, scores, or legal opinions.
+                3. Do NOT flag negotiated variables like dates or dollar amounts as errors.
+                4. Create a Markdown table with 3 columns:
+                   - Clause Reference
+                   - Your Standard / Previous Wording
+                   - Their Change / Deviation
+                5. Use 'STRICT MATCH FAILURE' for word changes if in Redline mode.
+                """
+
+                try:
+                    response = model.generate_content(prompt)
+                    st.markdown(response.text)
                     
-                    <document_to_audit>
-                    {target_text[:40000]}
-                    </document_to_audit>
-                    
-                    <task>
-                    Perform a strict risk audit.
-                    1. IDENTIFIED DOCUMENT TYPE: (State what type of contract this is and which Reference Doc you are using).
-                    2. RISK SCORE (1-10)
-                    3. EXECUTIVE SUMMARY (3 bullets)
-                    4. CRITICAL REDLINES (Top 3 deviations from the selected standard)
-                    </task>
-                    """
-                    
-                    try:
-                        response = model.generate_content(prompt)
-                        report_text = response.text
-                        st.markdown(report_text)
-                        
-                        doc = Document()
-                        doc.add_heading(f'Audit Report: {target.name}', 0)
-                        doc.add_paragraph(report_text)
-                        bio = BytesIO()
-                        doc.save(bio)
-                        
-                        st.download_button(
-                            label=f"💾 Download Report ({target.name})",
-                            data=bio.getvalue(),
-                            file_name=f"Audit_{target.name}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=target.name
-                        )
-                    except Exception as e:
-                        st.error(f"Analysis Failed. Error: {e}")
+                    # Download Option
+                    doc = Document()
+                    doc.add_heading(f'Deviation Report: {target.name}', 0)
+                    doc.add_paragraph(f"Mode: {review_mode}\nClient: {client_type}")
+                    doc.add_paragraph(response.text)
+                    bio = BytesIO()
+                    doc.save(bio)
+                    st.download_button("💾 Download Report", bio.getvalue(), f"Audit_{target.name}.docx")
+                except Exception as e:
+                    st.error(f"Audit Failed: {e}")
