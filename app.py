@@ -6,8 +6,7 @@ from docx import Document
 from io import BytesIO
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Legal Auditor: Shark Edition", page_icon="⚖️", layout="wide")
-
+st.set_page_config(page_title="Legal Auditor: Professional Edition", page_icon="⚖️", layout="wide")
 # --- CUSTOM CSS FOR SPLIT VIEW ---
 st.markdown("""
 <style>
@@ -50,7 +49,7 @@ def get_best_model():
 model, model_name = get_best_model()
 
 # --- HEADER ---
-st.title("⚖️ Legal Auditor: Shark Edition")
+st.title("⚖️ Legal Auditor: Professional Edition")
 st.caption(f"Engine: {model_name} | Mode: High-Precision Comparison")
 
 # --- UI LAYOUT: TWO COLUMNS ---
@@ -100,8 +99,14 @@ if st.button("🚀 Run Comparison Audit"):
                 for p in target_reader.pages:
                     target_text += p.extract_text() + "\n"
 
-                # --- SHARK PROMPT ---
-                prompt_task = "STRICT WORD-FOR-WORD COMPARISON. Flag any synonym change." if "Literal" in review_mode else "CONCEPTUAL PLAYBOOK COMPLIANCE. Flag deviations from mandatory legal standards."
+                # --- PROFESSIONAL PROMPT (NOISE-REDUCED) ---
+                # Prioritizing substantive legal changes over formatting/typos
+                prompt_task = (
+                    "STRICT SUBSTANTIVE COMPARISON. Ignore all whitespace, punctuation, "
+                    "typos, or formatting changes. Only flag changes to legal meaning."
+                    if "Literal" in review_mode else 
+                    "CONCEPTUAL PLAYBOOK COMPLIANCE. Flag deviations from mandatory standards."
+                )
                 
                 prompt = f"""
                 You are a senior attorney's high-precision comparison tool. 
@@ -109,33 +114,57 @@ if st.button("🚀 Run Comparison Audit"):
                 Task: {prompt_task}
 
                 [SOURCE OF TRUTH / PLAYBOOK]
-                {source_text[:30000]}
+                {source_text}
 
                 [INCOMING DRAFT FOR REVIEW]
-                {target_text[:30000]}
+                {target_text}
 
-                INSTRUCTIONS:
-                1. Identify which document in the 'Source of Truth' matches the incoming draft type.
-                2. Do NOT provide summaries, scores, or legal opinions.
-                3. Do NOT flag negotiated variables like dates or dollar amounts as errors.
-                4. Create a Markdown table with 3 columns:
+                CRITICAL INSTRUCTIONS:
+                1. IGNORE ALL TYPOS AND SPACING: Do not flag 't he' vs 'the' or missing spaces.
+                2. IGNORE PUNCTUATION: Do not flag commas or periods unless they change liability.
+                3. FOCUS: Only list changes that alter the legal rights or obligations of the {client_type}.
+                4. FORMAT: Create a Markdown table with 3 columns:
                    - Clause Reference
-                   - Your Standard / Previous Wording
-                   - Their Change / Deviation
-                5. Use 'STRICT MATCH FAILURE' for word changes if in Redline mode.
+                   - Our Standard
+                   - Their Substantive Change
+                5. Do NOT provide summaries. If no substantive changes exist, return "No substantive deviations found."
                 """
 
                 try:
-                    response = model.generate_content(prompt)
+                    # Token limit set to 8k to prevent cutoff at page 11
+                    response = model.generate_content(
+                        prompt,
+                        generation_config={
+                            "max_output_tokens": 8192,
+                            "temperature": 0.1
+                        }
+                    )
                     st.markdown(response.text)
                     
-                    # Download Option
+                    # --- SIDE-BY-SIDE WORD REPORT ---
                     doc = Document()
-                    doc.add_heading(f'Deviation Report: {target.name}', 0)
+                    doc.add_heading(f'Legal Audit Report: {target.name}', 0)
                     doc.add_paragraph(f"Mode: {review_mode}\nClient: {client_type}")
-                    doc.add_paragraph(response.text)
+
+                    # Professional 2-column table layout
+                    table = doc.add_table(rows=1, cols=2)
+                    table.style = 'Table Grid'
+                    hdr_cells = table.rows[0].cells
+                    hdr_cells[0].text = 'Original Segment'
+                    hdr_cells[1].text = 'Substantive Deviation & Analysis'
+
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = "Review of Full Document"
+                    row_cells[1].text = response.text
+
                     bio = BytesIO()
                     doc.save(bio)
-                    st.download_button("💾 Download Report", bio.getvalue(), f"Audit_{target.name}.docx")
+                    st.download_button(
+                        label="💾 Download Professional Report",
+                        data=bio.getvalue(),
+                        file_name=f"Audit_{target.name}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
                 except Exception as e:
-                    st.error(f"Audit Failed: {e}")
+                    st.error(f"AI Engine Error: {str(e)}")
